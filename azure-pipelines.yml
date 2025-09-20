@@ -1,25 +1,68 @@
-# Starter pipeline
-
-# Start with a minimal pipeline that you can customize to build and deploy your code.
-# Add steps that build, run tests, deploy, and more:
-# https://aka.ms/yaml
-
 trigger:
-- master
+- main
 
 pool:
-  name: default
+  name: 'default'      # غيّر اسم الـ pool للي عندك
+  demands:
+  - Agent.OS -equals Windows_NT
+  - dotnet                      # demand على capability اسمها dotnet (تأكد من وجودها عند agent)
 
-steps:
-- script: echo Hello, world!
-  displayName: 'Run a one-line script'
+variables:
+  buildConfiguration: 'Release'
+  feed: 'CertTST/ialnagar'  # غيّرها للـ Project/Feed بتاعك
 
-- script: |
-    echo Add other tasks to build, test, and deploy your project.
-    echo See https://aka.ms/yaml
-  displayName: 'Run a multi-line script'
+stages:
+- stage: Build
+  displayName: 'Build & Pack'
+  jobs:
+  - job: BuildJob
+    displayName: 'Build on self-hosted agent'
+    steps:
 
-- task: DotNetCoreCLI@2
-  inputs:
-    azureSubscription: 'InovaLab-FEB2024-SDE44(1)(6fffa98c-3cf6-4729-bb78-3e4ae94eefaf)'
-    command: 'build'
+    - powershell: |
+        gci env:* | sort-object name | Format-Table -AutoSize | Out-File $env:BUILD_ARTIFACTSTAGINGDIRECTORY\environment-variables.txt
+      displayName: 'Dump environment variables to artifact dir'
+
+    - task: NuGetAuthenticate@1
+      displayName: 'Authenticate to Azure Artifacts feeds'
+
+    - task: DotNetCoreCLI@2
+      displayName: 'Restore packages (from feed)'
+      inputs:
+        command: 'restore'
+        projects: '**/*.csproj'
+        feedsToUse: 'select'
+        vstsFeed: '$(feed)'
+
+    - task: DotNetCoreCLI@2
+      displayName: 'Build'
+      inputs:
+        command: 'build'
+        projects: '**/*.csproj'
+        arguments: '--configuration $(buildConfiguration) --no-restore'
+
+   
+    - task: DotNetCoreCLI@2
+      displayName: 'Pack NuGet packages'
+      inputs:
+        command: 'pack'
+        packagesToPack: '**/*.csproj'
+        configuration: '$(buildConfiguration)'
+        nobuild: true
+        includesymbols: true
+        outputDir: '$(Build.ArtifactStagingDirectory)'
+
+    - task: PublishPipelineArtifact@1
+      displayName: 'Publish pipeline artifact (fast) - drop'
+      inputs:
+        targetPath: '$(Build.ArtifactStagingDirectory)'
+        artifact: 'drop'
+
+    # Push packages to feed ONLY from main branch (safe-guard)
+    - task: NuGetCommand@2
+      displayName: 'Push packages to Azure Artifacts feed (only on main)'
+      inputs:
+        command: 'push'
+        packagesToPush: '$(Build.ArtifactStagingDirectory)/**/*.nupkg'
+        publishVstsFeed: '$(feed)'
+      condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
