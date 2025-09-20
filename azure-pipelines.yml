@@ -3,9 +3,7 @@ trigger:
 
 pool:
   name: 'default'      # غيّر اسم الـ pool للي عندك
-  demands:
-  - Agent.OS -equals Windows_NT
-  - dotnet                      # demand على capability اسمها dotnet (تأكد من وجودها عند agent)
+                     # demand على capability اسمها dotnet (تأكد من وجودها عند agent)
 
 variables:
   buildConfiguration: 'Release'
